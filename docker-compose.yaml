@@ -1,0 +1,21 @@
+version: '3'
+services:
+  samapi:
+    image: mattgrobelny/samapi:1
+    env_file:
+      - .env
+    environment:
+      - SAMAPI_ROOT_DIR=${SAMAPI_ROOT_DIR}
+    volumes:
+      - ${SAMAPI_ROOT_DIR}/vit_h:/src/${SAMAPI_ROOT_DIR}/vit_h
+      - ${SAMAPI_ROOT_DIR}/vit_l:/src/${SAMAPI_ROOT_DIR}/vit_l
+      - ${SAMAPI_ROOT_DIR}/vit_b:/src/${SAMAPI_ROOT_DIR}/vit_b
+      - ${SAMAPI_ROOT_DIR}/vit_t:/src/${SAMAPI_ROOT_DIR}/vit_t
+      - ${SAMAPI_ROOT_DIR}/sam2_l:/src/${SAMAPI_ROOT_DIR}/sam2_l
+      - ${SAMAPI_ROOT_DIR}/sam2_bp:/src/${SAMAPI_ROOT_DIR}/sam2_bp
+      - ${SAMAPI_ROOT_DIR}/sam2_s:/src/${SAMAPI_ROOT_DIR}/sam2_s
+      - ${SAMAPI_ROOT_DIR}/sam2_t:/src/${SAMAPI_ROOT_DIR}/sam2_t
+      - ${SAMAPI_ROOT_DIR}/stderr:/src/${SAMAPI_ROOT_DIR}/stderr
+      - ${SAMAPI_ROOT_DIR}:/src/${SAMAPI_ROOT_DIR}
+    ports:
+      - "8000:8000" # adjust the port numbers as needed

@@ -1,0 +1,13 @@
+fastapi[all]
+torch
+git+https://github.com/ksugar/MobileSAM.git
+geojson
+pillow
+numpy
+scikit-image
+shapely
+torchvision
+opencv-python
+timm
+gdown
+sam2

@@ -19,8 +19,9 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Security
+from fastapi.security.api_key import APIKeyHeader, APIKey
+from fastapi.responses import PlainTextResponse, HTMLResponse
 from geojson import Feature
 import numpy as np
 from PIL import Image
@@ -38,12 +39,8 @@ from mobile_sam import (
 from sam2.build_sam import build_sam2, build_sam2_video_predictor
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 from sam2.sam2_image_predictor import SAM2ImagePredictor
+from samapi import hub_extension, utils #,__version__
 import torch
-
-from samapi import __version__
-from samapi.hub_extension import load_state_dict_from_url
-from samapi.utils import decode_image, mask_to_geometry
-
 logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO").upper())
 logger = logging.getLogger("uvicorn")
 
@@ -59,7 +56,7 @@ except:
 
 SAMAPI_ROOT_DIR = os.getenv("SAMAPI_ROOT_DIR", str(Path.home() / ".samapi"))
 
-
+SAMAPI_MODELS_DIR = SAMAPI_ROOT_DIR 
 SAMAPI_STDERR = SAMAPI_ROOT_DIR + "/samapi.stderr"
 SAMAPI_CANCEL_FILE = SAMAPI_ROOT_DIR + "/samapi.cancel"
 
@@ -73,7 +70,7 @@ class ProgressIO(TextIOWrapper):
         super().__init__(sys.__stderr__.buffer, encoding=sys.__stderr__.encoding)
 
     def write(self, s: str):
-        with open(SAMAPI_STDERR, "w", encoding="utf-8") as f:
+        with open(SAMAPI_STDERR, "a", encoding="utf-8") as f:
             f.write(s)
         super().write(s)
 
@@ -106,6 +103,20 @@ uvicorn_logger.addFilter(EndpointFilter(path="/sam/weights/cancel/"))
 
 app = FastAPI()
 
+# Define the API key in the environment or code
+API_KEY = os.getenv("API_KEY", "mysecureapikey123")
+API_KEY_NAME = "access-token"  # This will be the header name
+
+# Create an API key dependency
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if api_key_header == API_KEY:
+        logger.info("API Key Authorization Successed")
+        return api_key_header
+    else:
+        logger.error("Could not validate credentials")
+        raise HTTPException(status_code=403, detail="Could not validate credentials")
 
 class ModelType(str, Enum):
     """
@@ -171,6 +182,7 @@ sam_predictor_registry = {
 }
 
 
+
 def get_sam_model(
     model_type: ModelType, checkpoint_url: Optional[str] = None, is_video: bool = False
 ):
@@ -184,9 +196,9 @@ def get_sam_model(
     sam = sam_model_registry[model_key]()
     if checkpoint_url is None:
         checkpoint_url = DEFAULT_CHECKPOINT_URLS[model_type]
-    state_dict = load_state_dict_from_url(
+    state_dict = hub_extension.load_state_dict_from_url(
         url=checkpoint_url,
-        model_dir=str(Path(SAMAPI_ROOT_DIR) / model_type.name),
+        model_dir=str(Path(SAMAPI_MODELS_DIR) / model_type.value),
         cancel_filepath=SAMAPI_CANCEL_FILE,
         map_location=torch.device("cpu"),
     )[0]
@@ -245,7 +257,7 @@ def _get_device() -> str:
 device = _get_device()
 
 
-def register_state_dict_from_url(model_type: ModelType, url: str, name: str) -> bool:
+def register_state_dict_from_url(model_type: ModelType, url: str, name: str,api_key: APIKey = Security(get_api_key)) -> bool:
     """
     Registers a state dict from URL.
     :param model_type: Model type.
@@ -253,12 +265,12 @@ def register_state_dict_from_url(model_type: ModelType, url: str, name: str) -> 
     :param name: Name.
     :return: True if registered successfully, False otherwise.
     """
-    model_dir = Path(SAMAPI_ROOT_DIR) / model_type.name
+    model_dir = Path(SAMAPI_MODELS_DIR) / model_type.value
     if os.path.exists(SAMAPI_CANCEL_FILE):
         os.remove(SAMAPI_CANCEL_FILE)
     try:
         with redirect_stderr(progress_io):
-            _, filepath = load_state_dict_from_url(
+            _, filepath = hub_extension.load_state_dict_from_url(
                 url=url,
                 model_dir=str(model_dir),
                 cancel_filepath=SAMAPI_CANCEL_FILE,
@@ -298,14 +310,46 @@ predictor = sam_predictor_registry[last_sam_type](
 )
 last_image = None
 
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    html = """
+    <html>
+    <head>
+        <title>SAM API</title>
+    </head>
+    <body>
+        <h1>SAM API</h1>
+        <p>This is the SAM API server. You can use the API to request the SAM model to segment images.</p>
+        <p>Here is an example of how to use the API using the command line tool <code>curl</code>:</p>
+        <pre>
+            curl -X POST \\
+                -H "Content-Type: application/json" \\
+                -d '{"image": "iVBORw0KGg..."}' \\
+                http://localhost:8000/sam/segment
+        </pre>
+        <p>Replace <code>iVBORw0KGg...</code> with a base64 encoded image.</p>
+        <p>You can also use the following Python code to use the API:</p>
+        <pre>
+            import base64
+            import requests
 
-@app.get("/sam/version/", response_class=PlainTextResponse)
-async def get_version():
+            image = open("image.png", "rb").read()
+            data = {"image": base64.b64encode(image).decode("utf-8")}
+            response = requests.post("http://localhost:8000/sam/segment", json=data)
+            print(response.json())
+        </pre>
+    </body>
+    </html>
     """
-    Returns the version of the SAM API.
-    :return: Version of the SAM API.
-    """
-    return __version__
+    return HTMLResponse(content=html, status_code=200)
+
+# @app.get("/sam/version/", response_class=PlainTextResponse)
+# async def get_version():
+#     """
+#     Returns the version of the SAM API.
+#     :return: Version of the SAM API.
+#     """
+#     return __version__
 
 
 class SAMWeightsBody(BaseModel):
@@ -352,7 +396,7 @@ def _get_weights_at(p_model_dir: Path, remove_orphans: bool = True):
 
 
 @app.get("/sam/weights/")
-async def get_weights(type: Optional[ModelType] = None):
+async def get_weights(type: Optional[ModelType] = None, api_key: APIKey = Security(get_api_key)):
     """
     Returns a list of the available weights.
     :param type: Model type.
@@ -368,7 +412,7 @@ async def get_weights(type: Optional[ModelType] = None):
 
 
 @app.post("/sam/weights/", response_class=PlainTextResponse)
-async def register_weights(body: SAMWeightsBody):
+async def register_weights(body: SAMWeightsBody,api_key: APIKey = Security(get_api_key)):
     """
     Registers SAM weights.
     :param body: SAM weights body.
@@ -395,7 +439,7 @@ async def register_weights(body: SAMWeightsBody):
 
 
 @app.get("/sam/weights/cancel/", response_class=PlainTextResponse)
-async def cancel_download():
+async def cancel_download(api_key: APIKey = Security(get_api_key)):
     """
     Cancels the download.
     :return: A message indicating that the cancel signal is sent.
@@ -408,7 +452,7 @@ async def cancel_download():
 
 
 @app.get("/sam/progress/")
-async def get_progress():
+async def get_progress(api_key: APIKey = Security(get_api_key)):
     """
     Returns the progress.
     :return: The progress.
@@ -444,7 +488,7 @@ class SAMBody(BaseModel):
 
 
 @app.post("/sam/")
-async def predict_sam(body: SAMBody):
+async def predict_sam(body: SAMBody,api_key: APIKey = Security(get_api_key)):
     """
     Predicts SAM with prompts.
     :param body: SAM body.
@@ -483,7 +527,7 @@ async def predict_sam(body: SAMBody):
         index_number = int(obj_int - 1)
         features.append(
             Feature(
-                geometry=mask_to_geometry(mask),
+                geometry=utils.mask_to_geometry(mask),
                 properties={
                     "object_idx": index_number,
                     "label": "object",
@@ -519,7 +563,7 @@ class SAMAutoMaskBody(BaseModel):
 
 
 @app.post("/sam/automask/")
-async def automatic_mask_generator(body: SAMAutoMaskBody):
+async def automatic_mask_generator(body: SAMAutoMaskBody,api_key: APIKey = Security(get_api_key)):
     """
     Generates masks automatically using SAM.
     :param body: SAM auto mask body.
@@ -592,7 +636,7 @@ async def automatic_mask_generator(body: SAMAutoMaskBody):
         index_number = int(obj_int - 1)
         features.append(
             Feature(
-                geometry=mask_to_geometry(mask["segmentation"]),
+                geometry=utils.mask_to_geometry(mask["segmentation"]),
                 properties={
                     "object_idx": index_number,
                     "label": "object",
@@ -608,6 +652,7 @@ async def automatic_mask_generator(body: SAMAutoMaskBody):
 async def video_upload(
     dirname: str = Form(...),
     file: UploadFile = File(...),
+    api_key: APIKey = Security(get_api_key)
 ):
     """
     Uploads a file for SAM video predictor.
@@ -681,7 +726,7 @@ def get_video_segments(
 
 
 @app.post("/sam/video/")
-async def video_predictor(body: SAMVideoBody):
+async def video_predictor(body: SAMVideoBody,api_key: APIKey = Security(get_api_key)):
     """
     Generates masks from video automatically using SAM2.
     :param body: SAM video body.
@@ -759,7 +804,7 @@ async def video_predictor(body: SAMVideoBody):
             }
         for obj_id, mask in masks.items():
             if np.any(mask):
-                geometry = mask_to_geometry(mask[0])
+                geometry = utils.mask_to_geometry(mask[0])
                 geometry["plane"] = plane
                 features.append(
                     Feature(
@@ -780,7 +825,7 @@ def _parse_image(body: SAMBody):
     :param body: SAM body.
     :return: Image as ndarray.
     """
-    image = decode_image(body.b64img)
+    image = utils.decode_image(body.b64img)
     if image.ndim == 2:
         image = np.stack((image,) * 3, axes=-1)
     return image
@@ -792,7 +837,7 @@ def _parse_mask(body: SAMBody):
     :param body: SAM body.
     :return: Mask as ndarray.
     """
-    return None if body.b64mask is None else decode_image(body.b64mask)
+    return None if body.b64mask is None else utils.decode_image(body.b64mask)
 
 
 def _parse_bbox(body: SAMBody):
