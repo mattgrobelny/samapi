@@ -1,0 +1,36 @@
+version: '3'
+services:
+  samapi:
+    restart: always
+    image: mattgrobelny/samapi:1
+    env_file:
+      - .env
+    environment:
+      - SAMAPI_ROOT_DIR=${SAMAPI_ROOT_DIR}
+    volumes:
+      - ${SAMAPI_ROOT_DIR}/vit_h:/src/${SAMAPI_ROOT_DIR}/vit_h
+      - ${SAMAPI_ROOT_DIR}/vit_l:/src/${SAMAPI_ROOT_DIR}/vit_l
+      - ${SAMAPI_ROOT_DIR}/vit_b:/src/${SAMAPI_ROOT_DIR}/vit_b
+      - ${SAMAPI_ROOT_DIR}/vit_t:/src/${SAMAPI_ROOT_DIR}/vit_t
+      - ${SAMAPI_ROOT_DIR}/sam2_l:/src/${SAMAPI_ROOT_DIR}/sam2_l
+      - ${SAMAPI_ROOT_DIR}/sam2_bp:/src/${SAMAPI_ROOT_DIR}/sam2_bp
+      - ${SAMAPI_ROOT_DIR}/sam2_s:/src/${SAMAPI_ROOT_DIR}/sam2_s
+      - ${SAMAPI_ROOT_DIR}/sam2_t:/src/${SAMAPI_ROOT_DIR}/sam2_t
+      - ${SAMAPI_ROOT_DIR}/stderr:/src/${SAMAPI_ROOT_DIR}/stderr
+      - ${SAMAPI_ROOT_DIR}:/src/${SAMAPI_ROOT_DIR}
+    expose:
+      - "8000"
+    networks:
+      - default
+  nginx:
+    image: nginx:latest
+    restart: always
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - samapi
+    networks:
+      - default
+
