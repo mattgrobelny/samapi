@@ -332,10 +332,12 @@ async def root():
         <pre>
             import base64
             import requests
-
+            headers = {
+                "access-token": "WOW1234563"
+            }
             image = open("image.png", "rb").read()
             data = {"image": base64.b64encode(image).decode("utf-8")}
-            response = requests.post("http://localhost:8000/sam/segment", json=data)
+            response = requests.post("http://localhost:8000/sam/segment",headers=headers, json=data)
             print(response.json())
         </pre>
     </body>
@@ -487,7 +489,7 @@ class SAMBody(BaseModel):
     checkpoint_url: Optional[str] = None
 
 
-@app.post("/sam/")
+@app.post("/sam/predict/")
 async def predict_sam(body: SAMBody,api_key: APIKey = Security(get_api_key)):
     """
     Predicts SAM with prompts.
