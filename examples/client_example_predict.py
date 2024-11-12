@@ -31,7 +31,7 @@ data ={
   "multimask_output": "false"
 
 }
-response = requests.post("http://localhost:8000/sam", headers=headers, json=data, timeout=200)
+response = requests.post("http://localhost:8000/sam/predict", headers=headers, json=data, timeout=200)
 if response.status_code == 200:
     try:
         print(response.json())
